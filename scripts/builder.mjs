@@ -1,4 +1,4 @@
-import { DIFFICULTIES, METHODS, RANK_LABEL, evaluate, rankText, suggest } from './rules.mjs';
+import { DIFFICULTIES, METHODS, PICKABLE, RANK_LABEL, ROLES, evaluate, levelBand, rankText, rankWeight, suggest } from './rules.mjs';
 import { loadCatalog, partyFromWorld } from './catalog.mjs';
 import { placeEncounter } from './place.mjs';
 
@@ -32,13 +32,13 @@ export class EncounterBuilder extends ApplicationV2 {
 	constructor(options = {}) {
 		super(options);
 		const auto = partyFromWorld();
-		this.party = { heroes: auto.heroes, level: auto.level, names: auto.names, manual: false };
+		this.party = { heroes: auto.heroes, allies: 0, level: auto.level, names: auto.names, manual: false };
 		this.method = setting('method') || 'core';
-		this.difficulty = 'balanced';
+		this.difficulty = 'normal';
 		/** @type {Map<string, {npc:object, qty:number}>} */
 		this.entries = new Map();
 		this.catalog = null;
-		this.filters = { q: '', book: '', rank: '', near: true, villains: false };
+		this.filters = { q: '', book: '', rank: '', role: '', near: true, villains: false };
 		this.combat = true;
 		this.hidden = false;
 	}
@@ -70,7 +70,8 @@ export class EncounterBuilder extends ApplicationV2 {
 				<div class="hd"><b>Party</b>${this.party.names?.length && !this.party.manual ? `<small>${esc(this.party.names.join(', '))}</small>` : '<small>Set by hand</small>'}</div>
 				<div class="nums">
 					<label><span>Heroes</span><input type="number" min="1" max="12" data-party="heroes" value="${this.party.heroes}"></label>
-					<label><span>Level</span><input type="number" min="1" max="60" data-party="level" value="${this.party.level}"></label>
+					<label data-tooltip="Helpful NPCs who take their own full turns count as extra heroes"><span>Allies</span><input type="number" min="0" max="8" data-party="allies" value="${this.party.allies ?? 0}"></label>
+					<label data-tooltip="The highest level among the heroes"><span>Party Level</span><input type="number" min="1" max="60" data-party="level" value="${this.party.level}"></label>
 					<button type="button" class="ghost" data-act="reparty" data-tooltip="Read the active party again"><i class="fa-solid fa-rotate"></i></button>
 				</div>
 			</div>
@@ -85,10 +86,10 @@ export class EncounterBuilder extends ApplicationV2 {
 			<div class="meter">
 				<div class="row"><b class="rating" style="--c:${rate?.color ?? '#8aa0b8'}">${rate ? esc(rate.label) : 'Empty'}</b><span>${ev.count ? `${ev.count} ${ev.count === 1 ? 'foe' : 'foes'} · ${fmt(ev.total)} ${esc(ev.unit)}` : 'Add creatures from the list'}</span></div>
 				<div class="bar">
-					${['easy', 'balanced', 'hard', 'deadly'].map((k) => `<i class="mark" style="left:${ev.meter.marks[k]}%;--c:${DIFF[k].color}" data-tooltip="${DIFF[k].label} from ${fmt(ev.bands[k])}"></i>`).join('')}
+					${PICKABLE.map((k) => `<i class="mark" style="left:${ev.meter.marks[k]}%;--c:${DIFF[k].color}" data-tooltip="${DIFF[k].label}: ${ev.bands[k]}"></i>`).join('')}
 					<span class="fill" style="width:${ev.meter.pct}%;--c:${rate?.color ?? '#8aa0b8'}"></span>
 				</div>
-				<div class="legend">${['easy', 'balanced', 'hard', 'deadly'].map((k) => `<span style="--c:${DIFF[k].color}">${DIFF[k].label} ${fmt(ev.bands[k])}</span>`).join('')}</div>
+				<div class="legend">${PICKABLE.map((k) => `<span style="--c:${DIFF[k].color}">${DIFF[k].label} ${ev.bands[k]}</span>`).join('')}</div>
 			</div>
 
 			<div class="enc">
@@ -98,9 +99,9 @@ export class EncounterBuilder extends ApplicationV2 {
 								.map(
 									({ npc, qty }) => `<div class="foe" data-uuid="${esc(npc.uuid)}">
 							<img src="${esc(npc.img)}" alt="" loading="lazy">
-							<div class="d"><b>${esc(npc.name)}</b><small>Lv ${npc.level} · <span class="rk ${npc.rank}">${esc(rankText(npc))}</span>${npc.villain ? ` · <span class="vil">${esc(npc.villain)} villain</span>` : ''}</small></div>
+							<div class="d"><b>${esc(npc.name)}</b><small><span class="lvb ${levelBand(npc.level, this.party.level).id}" data-tooltip="${esc(levelBand(npc.level, this.party.level).label)}">Lv ${npc.level}</span> · <span class="rk ${npc.rank}">${esc(rankText(npc))}</span>${npc.role ? ` · <span class="role">${esc(npc.role)}</span>` : ''}${npc.villain ? ` · <span class="vil">${typeof npc.villain === 'string' ? esc(npc.villain) : ''} villain</span>` : ''}</small></div>
 							<div class="qty"><button type="button" data-qty="-1" aria-label="One fewer">−</button><b>${qty}</b><button type="button" data-qty="1" aria-label="One more">+</button></div>
-							<span class="w" data-tooltip="Counts as">${fmt(METHODS[this.method].weight(npc, this.party) * qty)}</span>
+							<span class="w" data-tooltip="${this.method === 'bestiary' ? 'Enemy turns' : 'Soldiers'}">${rankWeight(npc) * qty}</span>
 						</div>`,
 								)
 								.join('')
@@ -108,9 +109,10 @@ export class EncounterBuilder extends ApplicationV2 {
 				}
 			</div>
 			${ev.warnings.length ? `<ul class="warn">${ev.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+			${ev.notes.length ? `<ul class="info">${ev.notes.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
 
 			<div class="suggest">
-				<div class="seg small">${['easy', 'balanced', 'hard', 'deadly'].map((k) => `<button type="button" class="${k === this.difficulty ? 'on' : ''}" data-diff="${k}" style="--c:${DIFF[k].color}">${DIFF[k].label}</button>`).join('')}</div>
+				<div class="seg small">${PICKABLE.map((k) => `<button type="button" class="${k === this.difficulty ? 'on' : ''}" data-diff="${k}" style="--c:${DIFF[k].color}">${DIFF[k].label}</button>`).join('')}</div>
 				<button type="button" class="gold" data-act="suggest" data-tooltip="A random encounter for this difficulty from the creatures shown on the right"><i class="fa-solid fa-dice"></i> Suggest</button>
 			</div>
 
@@ -142,18 +144,19 @@ export class EncounterBuilder extends ApplicationV2 {
 				<div class="row">
 					<select data-f="book" aria-label="Book">${['', ...books].map((b) => `<option value="${esc(b)}" ${b === f.book ? 'selected' : ''}>${b ? esc(b) : 'Every book'}</option>`).join('')}</select>
 					<select data-f="rank" aria-label="Rank"><option value="">Any rank</option>${Object.entries(RANK_LABEL).map(([k, l]) => `<option value="${k}" ${k === f.rank ? 'selected' : ''}>${l}</option>`).join('')}</select>
+					<select data-f="role" aria-label="Role" data-tooltip="Bestiary roles"><option value="">Any role</option>${ROLES.map((k) => `<option value="${k}" ${k === f.role ? 'selected' : ''}>${k[0].toUpperCase()}${k.slice(1)}</option>`).join('')}</select>
 				</div>
 				<div class="row checks">
-					<label><input type="checkbox" data-f="near" ${f.near ? 'checked' : ''}> Near the party’s level (±5)</label>
+					<label><input type="checkbox" data-f="near" ${f.near ? 'checked' : ''}> Within 5 levels of the party</label>
 					<label><input type="checkbox" data-f="villains" ${f.villains ? 'checked' : ''}> Villains only</label>
 					<span class="count"></span>
 				</div>
 			</div>
 			<div class="cat">${this.catalog
 				.map(
-					(c, i) => `<button type="button" class="cr" data-i="${i}" data-search="${esc(`${c.name} ${c.speciesLabel} ${c.traits} ${c.book}`.toLowerCase())}">
+					(c, i) => `<button type="button" class="cr" data-i="${i}" data-search="${esc(`${c.name} ${c.speciesLabel} ${c.traits} ${c.book} ${c.role}`.toLowerCase())}">
 					<img src="${esc(c.img)}" alt="" loading="lazy">
-					<span class="d"><b>${esc(c.name)}</b><small>${esc(c.speciesLabel || 'Creature')} · ${esc(c.book)}</small></span>
+					<span class="d"><b>${esc(c.name)}</b><small>${esc(c.speciesLabel || 'Creature')}${c.role ? ` · <span class="role">${esc(c.role)}</span>` : ''} · ${esc(c.book)}</small></span>
 					<span class="lv">Lv ${c.level}</span>
 					<span class="rk ${c.rank}">${esc(rankText(c))}</span>
 					<i class="fa-solid fa-plus add"></i>
@@ -167,10 +170,11 @@ export class EncounterBuilder extends ApplicationV2 {
 		const f = this.filters;
 		if (f.book && c.book !== f.book) return false;
 		if (f.rank && c.rank !== f.rank) return false;
+		if (f.role && c.role !== f.role) return false;
 		if (f.villains && !c.villain) return false;
 		if (f.near && Math.abs(c.level - this.party.level) > 5) return false;
 		const q = f.q.trim().toLowerCase();
-		if (q && !`${c.name} ${c.speciesLabel} ${c.traits} ${c.book}`.toLowerCase().includes(q)) return false;
+		if (q && !`${c.name} ${c.speciesLabel} ${c.traits} ${c.book} ${c.role}`.toLowerCase().includes(q)) return false;
 		return true;
 	}
 
@@ -244,7 +248,7 @@ export class EncounterBuilder extends ApplicationV2 {
 		if (!left) return;
 		left.querySelectorAll('[data-party]').forEach((el) =>
 			el.addEventListener('change', () => {
-				this.party[el.dataset.party] = Math.max(1, Number(el.value) || 1);
+				this.party[el.dataset.party] = Math.max(el.dataset.party === 'allies' ? 0 : 1, Number(el.value) || 0);
 				this.party.manual = true;
 				this.#refreshLeft();
 				this.#applyFilters();
@@ -315,7 +319,7 @@ export class EncounterBuilder extends ApplicationV2 {
 				});
 				if (!name) return;
 				const saved = foundry.utils.deepClone(setting('saved') ?? {});
-				saved[name] = { method: this.method, party: { heroes: this.party.heroes, level: this.party.level }, foes: this.list.map(({ npc, qty }) => ({ npc, qty })) };
+				saved[name] = { method: this.method, party: { heroes: this.party.heroes, allies: this.party.allies, level: this.party.level }, foes: this.list.map(({ npc, qty }) => ({ npc, qty })) };
 				await game.settings.set(MODULE_ID, 'saved', saved);
 				ui.notifications.info(`Saved “${name}”.`);
 				return this.#refreshLeft();

@@ -4,6 +4,24 @@
  * until it is placed on a scene.
  */
 
+import { BOOK_CREATURES } from './books.mjs';
+
+const norm = (n) => String(n ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+/** name -> book entries with that name */
+const BY_NAME = new Map();
+for (const [name, book, level, rank, replaced, species, role, villain, solo] of BOOK_CREATURES) {
+	const k = norm(name);
+	if (!BY_NAME.has(k)) BY_NAME.set(k, []);
+	BY_NAME.get(k).push({ name, book, level, rank, replaced, species, role, villain: !!villain, solo: !!solo });
+}
+
+/** The book entry for an NPC: same name, within 5 levels (a homebrew foe that shares a name stays unmatched) */
+export function bookEntry(name, level) {
+	const list = (BY_NAME.get(norm(name)) ?? []).filter((e) => Math.abs(e.level - level) <= 5);
+	if (!list.length) return null;
+	return list.reduce((a, b) => (Math.abs(b.level - level) < Math.abs(a.level - level) ? b : a));
+}
+
 const FIELDS = ['img', 'type', 'folder', 'system.level.value', 'system.rank.value', 'system.rank.replacedSoldiers', 'system.species.value', 'system.villain.value', 'system.resources.hp.max', 'system.resources.mp.max', 'system.traits.value'];
 
 let cache = null;
@@ -19,20 +37,26 @@ function rootFolder(folders, id) {
 
 function entry(data, { uuid, source, book }) {
 	const species = String(get(data, 'system.species.value') ?? '');
+	const level = Number(get(data, 'system.level.value')) || 0;
+	const known = bookEntry(data.name, level);
 	return {
 		uuid,
 		name: data.name,
+		role: known?.role ?? '',
+		fromBook: known?.book ?? '',
+		solo: !!known?.solo,
 		img: data.img || 'icons/svg/mystery-man.svg',
-		level: Number(get(data, 'system.level.value')) || 0,
+		level,
 		rank: get(data, 'system.rank.value') || 'soldier',
 		replaced: Number(get(data, 'system.rank.replacedSoldiers')) || 1,
 		species,
 		speciesLabel: species ? game.i18n.localize(CONFIG.FU?.species?.[species] ?? species) : '',
-		villain: get(data, 'system.villain.value') || '',
+		villain: get(data, 'system.villain.value') || (known?.villain && known.rank === (get(data, 'system.rank.value') || 'soldier') ? true : ''),
 		hp: Number(get(data, 'system.resources.hp.max')) || null,
 		traits: String(get(data, 'system.traits.value') ?? ''),
 		source,
-		book: book || source,
+		// the book it comes from: its compendium folder, else the book it is printed in, else the compendium
+		book: book || (known ? `${source}: ${known.book}` : source),
 	};
 }
 
@@ -83,7 +107,8 @@ export function partyFromWorld() {
 		actors = [];
 	}
 	if (!actors.length) actors = (game.actors ?? []).filter((a) => a.type === 'character' && a.hasPlayerOwner);
+	// Core Rulebook: the Party Level is the highest level among the heroes
 	const levels = actors.map((a) => Number(a.system?.level?.value) || 0).filter((n) => n > 0);
-	const level = levels.length ? Math.round(levels.reduce((s, n) => s + n, 0) / levels.length) : 5;
+	const level = levels.length ? Math.max(...levels) : 5;
 	return { heroes: Math.max(1, actors.length || 4), level, names: actors.map((a) => a.name) };
 }
