@@ -1,5 +1,6 @@
 import { DIFFICULTIES, METHODS, PICKABLE, RANK_LABEL, ROLES, evaluate, levelBand, rankText, rankWeight, suggest } from './rules.mjs';
-import { loadCatalog, partyFromWorld } from './catalog.mjs';
+import { clearCatalog, loadCatalog, partyFromWorld } from './catalog.mjs';
+import { bindCreator, blankCreature, creatorHTML } from './creator-ui.mjs';
 import { placeEncounter } from './place.mjs';
 
 export const MODULE_ID = 'fu-encounter-builder';
@@ -41,6 +42,8 @@ export class EncounterBuilder extends ApplicationV2 {
 		this.filters = { q: '', book: '', rank: '', role: '', near: true, villains: false };
 		this.combat = true;
 		this.hidden = false;
+		this.tab = 'encounter';
+		this.creature = blankCreature(this.method);
 	}
 
 	get list() {
@@ -50,10 +53,55 @@ export class EncounterBuilder extends ApplicationV2 {
 	/* ---------------- rendering ---------------- */
 
 	async _renderHTML() {
+		const root = document.createElement('div');
+		root.className = 'fue-root';
+		root.innerHTML = `<nav class="fue-tabs">${[
+			['encounter', 'fa-dragon', 'Build an encounter'],
+			['create', 'fa-hammer', 'Create a creature'],
+		]
+			.map(([id, icon, label]) => `<button type="button" class="${this.tab === id ? 'on' : ''}" data-tab="${id}"><i class="fa-solid ${icon}"></i> ${label}</button>`)
+			.join('')}</nav>`;
 		const div = document.createElement('div');
-		div.className = 'fue';
-		div.innerHTML = `<section class="left">${this.#leftHTML()}</section><section class="right">${this.#rightHTML()}</section>`;
-		return div;
+		if (this.tab === 'create') {
+			div.className = 'fue fue-create';
+			div.innerHTML = creatorHTML(this.creature);
+		} else {
+			div.className = 'fue';
+			div.innerHTML = `<section class="left">${this.#leftHTML()}</section><section class="right">${this.#rightHTML()}</section>`;
+		}
+		root.append(div);
+		return root;
+	}
+
+	/** Redraw the Create tab in place, keeping the form's scroll */
+	#refreshCreate() {
+		const box = this.element?.querySelector('.fue-create');
+		if (!box) return this.render();
+		const top = box.querySelector('.cform')?.scrollTop ?? 0;
+		box.innerHTML = creatorHTML(this.creature);
+		box.querySelector('.cform').scrollTop = top;
+		this.#bindCreate(box);
+	}
+
+	#bindCreate(box) {
+		bindCreator(box, this.creature, {
+			onChange: () => this.#refreshCreate(),
+			onReset: () => {
+				this.creature = blankCreature(this.creature.method);
+				this.#refreshCreate();
+			},
+			onCreated: async (actor, addToEncounter) => {
+				actor.sheet?.render(true);
+				clearCatalog();
+				this.catalog = null;
+				if (!addToEncounter) return;
+				this.catalog = await loadCatalog();
+				const npc = this.catalog.find((x) => x.uuid === actor.uuid);
+				this.tab = 'encounter';
+				if (npc) this.#add(npc, 1);
+				else this.render();
+			},
+		});
 	}
 
 	_replaceHTML(result, content) {
@@ -203,6 +251,14 @@ export class EncounterBuilder extends ApplicationV2 {
 
 	async _onRender() {
 		const root = this.element;
+		root.querySelectorAll('.fue-tabs [data-tab]').forEach((el) =>
+			el.addEventListener('click', () => {
+				if (this.tab === el.dataset.tab) return;
+				this.tab = el.dataset.tab;
+				this.render();
+			}),
+		);
+		if (this.tab === 'create') return this.#bindCreate(root.querySelector('.fue-create'));
 		this.#bindLeft(root.querySelector('section.left'));
 		this.#bindRight(root.querySelector('section.right'));
 		if (!this.catalog && !this._loading) {
