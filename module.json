@@ -2,7 +2,7 @@
   "id": "fu-encounter-builder",
   "title": "Fabula Ultima Encounter Builder",
   "description": "Build encounters for Project FU from every NPC in your world and compendiums (the Core Rulebook, the Bestiary, the Atlases, your own). Weigh them with the Core Rulebook's or the Bestiary's encounter rules (soldiers and Party Level, or enemy turns, level adjustments and roles), see how hard the fight is, let it suggest one for Easy to Deadly, save encounters, place them on the scene and into the combat in one click, and create new creatures with the Core Rulebook's or the Bestiary's (Quick Assembly) rules.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "authors": [{ "name": "George Sowidan" }],
   "compatibility": { "minimum": "13", "verified": "13" },
   "relationships": {
@@ -12,6 +12,6 @@
   "styles": ["styles/builder.css"],
   "url": "https://github.com/EclipseGS27/fu-encounter-builder",
   "manifest": "https://github.com/EclipseGS27/fu-encounter-builder/releases/latest/download/module.json",
-  "download": "https://github.com/EclipseGS27/fu-encounter-builder/releases/download/v1.2.0/fu-encounter-builder.zip",
+  "download": "https://github.com/EclipseGS27/fu-encounter-builder/releases/download/v1.2.1/fu-encounter-builder.zip",
   "bugs": "https://github.com/EclipseGS27/fu-encounter-builder/issues"
 }

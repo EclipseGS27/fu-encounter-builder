@@ -63,10 +63,10 @@ export class EncounterBuilder extends ApplicationV2 {
 			.join('')}</nav>`;
 		const div = document.createElement('div');
 		if (this.tab === 'create') {
-			div.className = 'fue fue-create';
+			div.className = 'fueb fue-create';
 			div.innerHTML = creatorHTML(this.creature);
 		} else {
-			div.className = 'fue';
+			div.className = 'fueb';
 			div.innerHTML = `<section class="left">${this.#leftHTML()}</section><section class="right">${this.#rightHTML()}</section>`;
 		}
 		root.append(div);
