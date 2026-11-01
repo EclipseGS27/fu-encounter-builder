@@ -22,7 +22,7 @@
 #fu-encounter-builder .window-content * { text-shadow: none; -webkit-text-stroke: 0; }
 
 #fu-encounter-builder .fueb { display: grid; grid-template-columns: clamp(360px, 46%, 430px) minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; }
-#fu-encounter-builder .fueb > section { min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+#fu-encounter-builder .fueb > section { position: relative; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
 #fu-encounter-builder .fueb > .left { border-right: 1px solid var(--line2); overflow-y: auto; }
 #fu-encounter-builder .fueb .seg { display: flex; gap: 4px; padding: 3px; border-radius: 6px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line2); }
 #fu-encounter-builder .fueb .seg button { flex: 1; text-align: center; padding: 5px 8px; border-radius: 4px; font-family: var(--disp); letter-spacing: 0.06em; text-transform: uppercase; font-size: 14px; color: var(--ink3); }
@@ -159,8 +159,9 @@
 #fu-encounter-builder .fue-create .affs small { font-size: 10px; color: var(--ink3); letter-spacing: 0.06em; }
 #fu-encounter-builder .fue-create .affs b { font-family: var(--disp); font-weight: 400; font-size: 15px; color: var(--c); }
 #fu-encounter-builder .fue-create .chips { display: flex; flex-wrap: wrap; gap: 5px; }
-#fu-encounter-builder .fue-create .chip { flex-direction: row; display: inline-flex; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(238, 243, 255, 0.2); color: var(--ink3); font-size: 12px; cursor: pointer; }
-#fu-encounter-builder .fue-create .chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+#fu-encounter-builder .fue-create .chip { position: relative; flex-direction: row; display: inline-flex; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(238, 243, 255, 0.2); color: var(--ink3); font-size: 12px; cursor: pointer; }
+/* the box stays inside its chip: left loose, a click could scroll the whole page to wherever it was last laid out */
+#fu-encounter-builder .fue-create .chip input { position: absolute; left: 0; top: 0; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
 #fu-encounter-builder .fue-create .chip.on { color: var(--gold); border-color: var(--gold); background: rgba(242, 196, 90, 0.12); }
 #fu-encounter-builder .fue-create .attacks { display: flex; flex-direction: column; gap: 5px; }
 #fu-encounter-builder .fue-create .atk { display: grid; grid-template-columns: minmax(0, 1.6fr) 0.9fr 0.7fr 0.7fr 0.9fr auto 24px; gap: 5px; align-items: center; }
@@ -206,3 +207,8 @@
 #fu-encounter-builder .fue-create .cprev footer { display: flex; gap: 6px; align-items: center; margin-top: auto; }
 #fu-encounter-builder .fue-create .cprev footer .sp { flex: 1; }
 #fu-encounter-builder .fue-create .cprev footer .ghost { width: auto; padding: 0 12px; }
+
+/* the "⋮" header menu: solid and readable, not see-through */
+#fu-encounter-builder > menu.controls-dropdown { color: #eef3ff; background: rgba(12, 20, 44, 0.98); border: 1px solid rgba(159, 208, 255, 0.35); border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); backdrop-filter: none; padding: 4px; }
+#fu-encounter-builder > menu.controls-dropdown li.header-control > button.control { color: #eef3ff; text-shadow: none; background: transparent; border: 1px solid transparent; border-radius: 4px; }
+#fu-encounter-builder > menu.controls-dropdown li.header-control > button.control:hover { color: #fff3d1; background: rgba(242, 196, 90, 0.16); border-color: rgba(242, 196, 90, 0.6); }

@@ -251,6 +251,14 @@ export class EncounterBuilder extends ApplicationV2 {
 
 	async _onRender() {
 		const root = this.element;
+		// Only the panels scroll. If the browser ever scrolls the frame itself (focus jumping to a hidden box),
+		// put it back at once, or the window shows an empty panel that nothing can scroll away.
+		if (!this.scrollGuard) {
+			this.scrollGuard = true;
+			const wc = root.querySelector('.window-content');
+			wc?.addEventListener('scroll', () => (wc.scrollTop = wc.scrollLeft = 0));
+			root.addEventListener('scroll', () => (root.scrollTop = root.scrollLeft = 0));
+		}
 		root.querySelectorAll('.fue-tabs [data-tab]').forEach((el) =>
 			el.addEventListener('click', () => {
 				if (this.tab === el.dataset.tab) return;
