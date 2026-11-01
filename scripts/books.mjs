@@ -254,3 +254,25 @@ export const BOOK_CREATURES = [
 ];
 
 export const BOOKS = ["Bestiary vol. 1", "Core Rulebook", "High Fantasy Atlas", "Natural Fantasy Atlas", "Techno Fantasy Atlas"];
+
+/**
+ * Creatures printed as several profiles that make up one adversary (the Bestiary's "parts", page 16): the
+ * builder suggests them as a whole, never as a stray limb, and labels the parts in the creature list. [adversary, level, part names]
+ */
+export const PART_GROUPS = [
+	["Adamantherion", 50, ["Head", "Foreleg", "Foreleg", "Hind Leg", "Hind Leg"]],
+	["Arsenal Cobra", 10, ["Head", "Segment", "Segment"]],
+	["Babylonica", 40, ["Towering Apparatus", "Energy Core"]],
+	["Chimera", 20, ["Leonine Body", "Caprine Head", "Serpentine Tail"]],
+	["Gallowbranch", 20, ["Deathmist Heart", "Barbed Vine", "Barbed Vine"]],
+	["Kerberos", 10, ["Darkmaw", "Frostmaw", "Pyremaw"]],
+	["Kraken", 20, ["Bloated Head", "Slimy Tentacle", "Slimy Tentacle", "Slimy Tentacle"]],
+	["Gashadokuro", 30, ["Head", "Arm", "Arm"]],
+	["Mobile Missile Platform", 30, ["Body", "Legs"]],
+	["Amphisbaena", 20, ["Upper Head", "Lower Head"]],
+	["Tonitranea Rex", 5, ["Thorax", "Head", "Abdomen"]],
+	["Brightvale", 20, ["Head Of Brightvale", "Back Of Brightvale"]],
+	["Primary Core", 30, ["Primary Core", "Digital Limb A", "Digital Limb B"]],
+	["The Relentless", 40, ["The Relentless", "Assault Wing", "Support Wing"]],
+	["The Patriarch", 50, ["The Patriarch", "Right Hand", "Left Hand"]],
+];

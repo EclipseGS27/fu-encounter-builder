@@ -1,4 +1,5 @@
 import { AFF, ATTRS, BOSS_SKILLS, CORE_ARRAYS, CORE_SKILLS, CORE_SPECIES, DAMAGE_TYPES, NEGATIVE_SKILLS, NPC_SPELLS, QA_LEVELS, QA_SPECIES, ROLES } from './creation-data.mjs';
+import { HOMEBREW_ROLE_SKILLS, HOMEBREW_SPECIES_OPTIONS, attackFrom, randomAttack } from './ideas.mjs';
 
 /**
  * A creature being built, and everything that follows from it: the stat block the builder shows, the skill
@@ -18,7 +19,13 @@ export function blankCreature(method = 'core') {
 		traits: ['', '', '', ''],
 		aff: {},
 		immune: [],
-		attacks: [{ name: 'Strike', range: 'melee', attrs: ['dex', 'mig'], type: 'physical', hr: 5 }],
+		attacks: startingAttacks('monster'),
+		// the attacks are still the suggested ones: changing the Species suggests new ones
+		autoAttacks: true,
+		// special rules added from the books, homebrew, or written by hand: one Skill each
+		extraSkills: [],
+		// Quick Assembly attacks keep their numbers but can take a name
+		attackNames: [],
 		spells: [],
 		notes: '',
 		// Core Rulebook
@@ -37,6 +44,23 @@ export function blankCreature(method = 'core') {
 		speciesPicks: [],
 		speciesVuln: '',
 	};
+}
+
+/** Two plain basic attacks from the books for a Species (no effect, so no Skill spent): one melee, one ranged */
+export function startingAttacks(species) {
+	const melee = randomAttack(species, { range: 'melee', plain: true });
+	const ranged = randomAttack(species, { range: 'ranged', plain: true, not: melee ? [melee[0]] : [] });
+	const list = [melee, ranged].filter(Boolean).map((a) => attackFrom(a));
+	return list.length ? list : [{ name: 'Strike', range: 'melee', attrs: ['dex', 'mig'], type: 'physical', hr: 5, effect: '' }];
+}
+
+/** A role's Skills: the Bestiary's, then homebrew ones (marked) */
+export const roleSkillsOf = (roleId) => [...((ROLES[roleId] ?? ROLES.brute).skills ?? []), ...(HOMEBREW_ROLE_SKILLS[roleId] ?? [])];
+
+/** A Species' Quick Assembly options: the Bestiary's (strings), then homebrew ones ({name, text, homebrew}) */
+export function speciesOptionsOf(species) {
+	const q = QA_SPECIES[species] ?? QA_SPECIES.monster;
+	return [...q.options.map((label) => ({ label })), ...(HOMEBREW_SPECIES_OPTIONS[species] ?? []).map(([name, text]) => ({ label: `${name}: ${text}`, name, text, homebrew: true }))];
 }
 
 const mult = (c) => (c.rank === 'elite' ? 2 : c.rank === 'champion' ? Math.max(2, Number(c.replaced) || 2) : 1);
@@ -104,6 +128,13 @@ export function computeCreature(c) {
 			if (s.max && n > s.max) issues.push(`${s.name} can be taken at most ${s.max} times.`);
 		}
 		if (c.species === 'beast' && (c.coreSkills ?? []).some((p) => p.id === 'equipment')) issues.push('Beasts can’t take Use Equipment.');
+		// an attack with an effect (a status, draining...) is the Special Attack Skill
+		const special = (c.attacks ?? []).filter((a) => a.effect?.trim()).length;
+		const taken = (c.coreSkills ?? []).filter((p) => p.id === 'special').length;
+		if (special > taken) {
+			used += special - taken;
+			notes.push(`${special - taken} attack effect${special - taken === 1 ? '' : 's'} counted as Special Attack Skill${special - taken === 1 ? '' : 's'}.`);
+		}
 		hpBase = attrs.mig * 5 + lv * 2;
 		mpBase = attrs.wlp * 5 + lv;
 		bonus.acc += Math.floor(lv / 10);
@@ -126,7 +157,10 @@ export function computeCreature(c) {
 		for (const [at, fx] of Object.entries(role.levelFx ?? {})) if (lvl >= Number(at)) add(bonus, fx);
 		// Role Skills: one each at 20, 40, 60; one for elite; X for champion X; plus Species and Negative Skill picks
 		const qs = QA_SPECIES[c.species] ?? QA_SPECIES.monster;
-		const picks = (c.speciesPicks ?? []).map((i) => qs.options[i]).filter(Boolean);
+		const options = speciesOptionsOf(c.species);
+		const picked = (c.speciesPicks ?? []).map((i) => options[i]).filter(Boolean);
+		const picks = picked.map((o) => o.label);
+		for (const o of picked) if (o.homebrew) skillItems.push({ name: o.name, text: o.text, type: 'rule' });
 		const allowedPicks = qs.picks + (c.speciesVuln && qs.picksIfVuln ? qs.picksIfVuln : 0);
 		if (picks.length > allowedPicks) issues.push(`${c.species}: pick at most ${allowedPicks} Species option${allowedPicks === 1 ? '' : 's'}.`);
 		else if (picks.length < allowedPicks) issues.push(`${c.species}: ${allowedPicks - picks.length} Species option${allowedPicks - picks.length === 1 ? '' : 's'} left to pick.`);
@@ -135,7 +169,7 @@ export function computeCreature(c) {
 		used = (c.roleSkills ?? []).length;
 		const bossBudget = c.rank === 'champion' ? 1 : 0;
 		for (const id of c.roleSkills ?? []) {
-			const s = role.skills.find((x) => x.id === id);
+			const s = roleSkillsOf(c.role).find((x) => x.id === id);
 			if (!s) continue;
 			if (s.rank === 'elite+' && c.rank === 'soldier') issues.push(`${s.name} is for elites and champions.`);
 			if (s.rank === 'champion' && c.rank !== 'champion') issues.push(`${s.name} is for champions.`);
@@ -193,6 +227,11 @@ export function computeCreature(c) {
 		if (qch?.RS && Object.values(aff).filter((v) => v === 'RS').length < qch.RS) issues.push(`${c.species}: pick ${qch.RS} Resistances in Affinities.`);
 	}
 
+	// special rules taken from the books, homebrew, or written by hand: one Skill each
+	for (const x of c.extraSkills ?? []) {
+		used++;
+		if (x.name?.trim() || x.text?.trim()) skillItems.push({ name: x.name?.trim() || 'Special rule', text: x.text ?? '', type: 'rule' });
+	}
 	if (used > budget) issues.push(`${used - budget} Skill${used - budget === 1 ? '' : 's'} over the budget of ${budget}.`);
 	const spells = [...new Set([...(c.spells ?? []), ...bossSpells])].map((id) => NPC_SPELLS.find((s) => s.id === id)).filter(Boolean);
 	if (spells.length - bossSpells.length > spellSlots) issues.push(`${spells.length - bossSpells.length} spells, but the Skills chosen give ${spellSlots}.`);
@@ -237,10 +276,11 @@ export function attacksOf(c) {
 	const role = ROLES[c.role] ?? ROLES.brute;
 	const list = role.attacks.map((a, i) => ({ ...a, type: c.attackTypes?.[i] ?? 'physical' }));
 	for (const id of c.roleSkills ?? []) {
-		const s = role.skills.find((x) => x.id === id);
+		const s = roleSkillsOf(c.role).find((x) => x.id === id);
 		if (s?.attack && !list.some((a) => a.name === s.attack.name)) list.push({ ...s.attack, type: c.attackTypes?.[list.length] ?? 'physical' });
 	}
-	return list;
+	// a name of your own, keeping the role's numbers (the original name stays as the kind of attack)
+	return list.map((a, i) => (c.attackNames?.[i]?.trim() ? { ...a, kind: a.name, name: c.attackNames[i].trim() } : a));
 }
 
 const P = (t) => `<p>${String(t ?? '').replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch])}</p>`;
@@ -267,7 +307,7 @@ export function actorData(c, folder = null) {
 	};
 	const items = [];
 	for (const a of attacksOf(c)) {
-		const quality = [a.multi ? `Multi (${a.multi}).` : '', a.note ?? ''].filter(Boolean).join(' ');
+		const quality = [a.kind ? `${a.kind}.` : '', a.multi ? `Multi (${a.multi}).` : '', a.note ?? '', a.effect ?? ''].filter(Boolean).join(' ');
 		items.push({
 			name: a.name || 'Attack',
 			type: 'basic',
@@ -296,4 +336,5 @@ export function actorData(c, folder = null) {
 	return { name: c.name || 'New creature', type: 'npc', img: c.img, folder, system, items, prototypeToken: { name: c.name || 'New creature', disposition: -1, actorLink: false } };
 }
 
+export { HOMEBREW_ROLE_SKILLS };
 export { CORE_ARRAYS, CORE_SKILLS, CORE_SPECIES, NPC_SPELLS, QA_LEVELS, QA_SPECIES, ROLES, BOSS_SKILLS, NEGATIVE_SKILLS };
