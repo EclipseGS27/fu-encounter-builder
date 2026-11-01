@@ -16,6 +16,8 @@
  * champion as against mixed groups.
  */
 
+import { PART_GROUPS } from './books.mjs';
+
 export const DIFFICULTIES = [
 	{ id: 'trivial', label: 'Trivial', color: '#8aa0b8' },
 	{ id: 'easy', label: 'Easy', color: '#6fe3a0' },
@@ -79,28 +81,25 @@ export function levelAdjustment(npc, to) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Methods                                                            */
+/*  The rules                                                          */
 /* ------------------------------------------------------------------ */
 
-export const METHODS = {
-	core: {
-		label: 'Core Rulebook',
-		blurb:
-			'Counts soldiers against the heroes: an elite counts as 2, a champion X as X. Easy is one fewer than the heroes, Normal as many, Hard one more (most boss battles should be hard). Party Level is the highest hero’s level: foes below it are probably too weak, within 5 levels appropriate, within 10 a significant threat, and 11+ above probably too strong.',
-	},
-	bestiary: {
-		label: 'Bestiary',
-		blurb:
-			'The same count, read as enemy turns per round against the heroes’ turns, built for about four heroes with foes within 5 levels of them: a foe further off gets the Bestiary’s level adjustment instead. Mix roles (brute, hunter, mage, saboteur, sentinel, support), keep small or fragile groups to Easy or Normal, give big or optimized groups Hard fights rather than higher levels, and alternate lone champions with mixed groups.',
-	},
+/**
+ * Both books build encounters the same way (the Bestiary reads the Core count as enemy turns per round and adds
+ * advice), so there is one method: the Core count and level bands, with the Bestiary's level adjustment for foes
+ * further than 5 levels off and its notes on group size and roles.
+ */
+export const RULES = {
+	label: 'Core Rulebook + Bestiary',
+	blurb:
+		'Count soldiers against the heroes (enemy turns per round against theirs): an elite is 2, a champion X is X. Easy is one fewer than the heroes, Normal as many, Hard one more; most boss fights should be Hard, a lone champion often works better as Normal. Party Level is the highest hero’s level: foes below it are probably too weak, within 5 levels fit, within 10 are a real threat, and 11+ above probably too strong. A foe more than 5 levels off can take the Bestiary’s level adjustment instead. Mix roles, keep small groups to Easy or Normal, and give big ones Hard fights rather than higher levels.',
 };
 
 /**
- * @param {'core'|'bestiary'} methodId
  * @param {{npc:object, qty:number}[]} entries
  * @param {{heroes:number, allies?:number, level:number}} party
  */
-export function evaluate(methodId, entries, party) {
+export function evaluate(entries, party) {
 	const heroes = Math.max(1, (Number(party.heroes) || 1) + (Number(party.allies) || 0));
 	const PL = Number(party.level) || 1;
 	let total = 0;
@@ -115,17 +114,13 @@ export function evaluate(methodId, entries, party) {
 	let rating = null;
 	if (count) rating = total < bands.easy ? 'trivial' : total === bands.easy ? 'easy' : total === bands.normal ? 'normal' : total === bands.hard ? 'hard' : 'over';
 
-	// levels
+	// levels: the Core bands, and the Bestiary's adjustment for anything more than 5 levels off
 	for (const { npc } of entries) {
 		const b = levelBand(npc.level, PL);
-		if (methodId === 'core') {
-			if (b.id === 'weak') warnings.push(`${npc.name} (Lv ${npc.level}) is below the Party Level: probably too weak.`);
-			if (b.id === 'threat') notes.push(`${npc.name} (Lv ${npc.level}) is ${b.gap} levels above the party: a significant threat.`);
-			if (b.id === 'strong') warnings.push(`${npc.name} (Lv ${npc.level}) is ${b.gap} levels above the party: probably too strong.`);
-		} else if (Math.abs(b.gap) > 5) {
-			const target = PL + Math.sign(b.gap) * 5;
-			warnings.push(`${npc.name} (Lv ${npc.level}) is outside 5 levels of the party. ${levelAdjustment(npc, Math.max(5, Math.min(60, target)))}`);
-		}
+		const fix = Math.abs(b.gap) > 5 ? ` ${levelAdjustment(npc, Math.max(5, Math.min(60, PL + Math.sign(b.gap) * 5)))}` : '';
+		if (b.id === 'weak') (fix ? warnings : notes).push(`${npc.name} (Lv ${npc.level}) is below the Party Level: probably too weak.${fix}`);
+		if (b.id === 'threat') notes.push(`${npc.name} (Lv ${npc.level}) is ${b.gap} levels above the party: a significant threat.${fix}`);
+		if (b.id === 'strong') warnings.push(`${npc.name} (Lv ${npc.level}) is ${b.gap} levels above the party: probably too strong.${fix}`);
 	}
 
 	const champs = entries.filter((e) => e.npc.rank === 'champion');
@@ -138,22 +133,19 @@ export function evaluate(methodId, entries, party) {
 		if (v) notes.push(`${e.npc.name} is a ${typeof v === 'string' ? `${v} ` : ''}Villain: give them Ultima Points (minor 5, major 10, supreme 15).`);
 	}
 
-	if (methodId === 'bestiary') {
-		const n = Number(party.heroes) || 1;
-		if (n < 4 && rating === 'hard') notes.push('Groups of two or three heroes have a harder time: the Bestiary suggests Easy or Normal fights, or fewer enemy turns (a champion 4 becomes a champion 3).');
-		if (n > 4 && (rating === 'easy' || rating === 'normal')) notes.push('For groups above four heroes the Bestiary suggests Hard fights rather than higher-level foes.');
-		const roles = entries.map((e) => e.npc.role).filter(Boolean);
-		const kinds = new Set(roles);
-		if (count >= 3 && roles.length >= 2 && kinds.size === 1) warnings.push(`Every known role here is ${[...kinds][0]}: the best conflicts mix roles.`);
-		const supportSoldiers = entries.filter((e) => e.npc.role === 'support' && e.npc.rank === 'soldier').reduce((s, e) => s + e.qty, 0);
-		if (supportSoldiers > 1) warnings.push('Most conflicts should only include one support soldier, so the fight doesn’t drag on.');
-		if (entries.some((e) => e.npc.role === 'mage' && e.npc.rank === 'soldier') && !roles.includes('sentinel') && count >= 3) notes.push('Soldier mages are usually the main source of damage: a sentinel to protect them makes them harder to rush down.');
-	}
+	const n = Number(party.heroes) || 1;
+	if (n < 4 && rating === 'hard') notes.push('Groups of two or three heroes have a harder time: the Bestiary suggests Easy or Normal fights, or fewer enemy turns (a champion 4 becomes a champion 3).');
+	if (n > 4 && (rating === 'easy' || rating === 'normal')) notes.push('For groups above four heroes the Bestiary suggests Hard fights rather than higher-level foes.');
+	const roles = entries.map((e) => e.npc.role).filter(Boolean);
+	const kinds = new Set(roles);
+	if (count >= 3 && roles.length >= 2 && kinds.size === 1) warnings.push(`Every known role here is ${[...kinds][0]}: the best conflicts mix roles.`);
+	const supportSoldiers = entries.filter((e) => e.npc.role === 'support' && e.npc.rank === 'soldier').reduce((s, e) => s + e.qty, 0);
+	if (supportSoldiers > 1) warnings.push('Most conflicts should only include one support soldier, so the fight doesn’t drag on.');
+	if (entries.some((e) => e.npc.role === 'mage' && e.npc.rank === 'soldier') && !roles.includes('sentinel') && count >= 3) notes.push('Soldier mages are usually the main source of damage: a sentinel to protect them makes them harder to rush down.');
 
 	const top = Math.max(bands.hard + 2, total, 1);
 	return {
-		method: methodId,
-		unit: methodId === 'bestiary' ? (total === 1 ? 'enemy turn' : 'enemy turns') : total === 1 ? 'soldier' : 'soldiers',
+		unit: total === 1 ? 'soldier' : 'soldiers',
 		total,
 		count,
 		heroes,
@@ -165,60 +157,127 @@ export function evaluate(methodId, entries, party) {
 	};
 }
 
+/* ------------------------------------------------------------------ */
+/*  Encounter shapes                                                   */
+/* ------------------------------------------------------------------ */
+
+const isSoldier = (n) => n.rank === 'soldier';
+const uniq = (list) => new Set(list.map((c) => c.uuid)).size;
+
 /**
- * A random encounter for a difficulty from the creatures given: exactly the right soldier count, preferring
- * foes near the party's level and (with the Bestiary method) a mix of roles.
+ * Shapes for Suggest, like the encounter templates of Kobold Fight Club and friends, in Fabula Ultima terms.
+ * Every shape still hits the exact soldier count for the difficulty. Fields:
+ * lead: the first foe must pass this; fill: who fills the rest; count: exactly this many foes;
+ * same: chance of repeating a soldier already picked; ok: the finished group must pass this.
+ */
+export const SHAPES = {
+	balanced: { label: 'Balanced', desc: 'Any mix that hits the count: sometimes led by an elite or champion, often a mixed squad.' },
+	boss: { label: 'Boss and minions', desc: 'One champion (or an elite, in small fights) leading soldiers. The classic boss fight.', lead: (n) => n.rank === 'champion', leadAlt: (n) => n.rank === 'elite', fill: isSoldier, ok: (c) => c.length >= 2 },
+	lone: { label: 'Lone boss', desc: 'A single champion that replaces as many soldiers as the fight needs. Works best as Normal.', lead: (n) => n.rank === 'champion', count: 1 },
+	lieutenants: { label: 'Boss and lieutenants', desc: 'A champion with one or more elites at its side, maybe a soldier to round it out.', lead: (n) => n.rank === 'champion', fill: (n) => n.rank !== 'champion', ok: (c) => c.some((x) => x.rank === 'elite') },
+	duo: { label: 'Duo', desc: 'Exactly two foes, often a pair that covers each other.', count: 2 },
+	trio: { label: 'Trio', desc: 'Exactly three foes, three different creatures.', count: 3, ok: (c) => uniq(c) === 3 },
+	elites: { label: 'Elite squad', desc: 'Elites only (one soldier if the count is odd): few foes, each one tough.', fill: (n) => n.rank !== 'champion', ok: (c) => c.filter(isSoldier).length <= 1 && c.some((x) => x.rank === 'elite') },
+	pack: { label: 'Pack', desc: 'Several of one soldier: wolves, bandits, a patrol of guards.', fill: isSoldier, same: 1, ok: (c) => uniq(c) === 1 && c.length >= 2 },
+	horde: { label: 'Horde', desc: 'Soldiers only, as many as the count allows, of one or two kinds.', fill: isSoldier, same: 0.6, ok: (c) => uniq(c) <= 2 && c.length >= 3 },
+	mixed: { label: 'Mixed roles', desc: 'All different creatures with different Bestiary roles, as the Bestiary recommends.', ok: (c) => c.length >= 2 && uniq(c) === c.length && new Set(c.map((x) => x.role).filter(Boolean)).size === c.length },
+	guarded: { label: 'Guarded casters', desc: 'A sentinel holding the line in front of a mage or support.', ok: (c) => c.some((x) => x.role === 'sentinel') && c.some((x) => x.role === 'mage' || x.role === 'support') },
+	ambush: { label: 'Ambush', desc: 'Hunters and saboteurs: quick, accurate, and full of nasty statuses.', fill: (n) => n.role === 'hunter' || n.role === 'saboteur', ok: (c) => c.length >= 2 },
+};
+
+/** One random try at a shape; null when it doesn't land on the count */
+function tryShape(shape, pool, goal, maxFoes, pick) {
+	const chosen = [];
+	let total = 0;
+	const add = (n) => {
+		chosen.push(n);
+		total += rankWeight(n);
+	};
+	if (shape.lead) {
+		let leaders = pool.filter((n) => shape.lead(n) && rankWeight(n) <= goal);
+		if (shape.count === 1) leaders = leaders.filter((n) => rankWeight(n) === goal);
+		if (!leaders.length && shape.leadAlt) leaders = pool.filter((n) => shape.leadAlt(n) && rankWeight(n) < goal);
+		if (!leaders.length) return null;
+		add(pick(leaders));
+	} else if (!shape.fill && !shape.count && Math.random() < 0.35) {
+		// balanced: hard fights are often built around a boss
+		const leaders = pool.filter((n) => !isSoldier(n) && rankWeight(n) <= goal);
+		if (leaders.length) add(pick(leaders));
+	}
+	const fill = shape.fill ? pool.filter(shape.fill) : shape.count ? pool : pool.filter(isSoldier).length ? pool.filter(isSoldier) : pool;
+	if (!fill.length && total < goal) return null;
+	const max = shape.count ?? maxFoes;
+	let guard = 0;
+	while (total < goal && chosen.length < max && guard++ < 60) {
+		const left = goal - total;
+		let options = fill;
+		// the last slot of a fixed-size group has to land exactly on the count
+		if (shape.count && chosen.length === shape.count - 1) options = fill.filter((n) => rankWeight(n) === left);
+		if (!options.length) return null;
+		const same = chosen.filter(isSoldier);
+		const repeat = shape.same ?? 0.45;
+		const n = same.length && Math.random() < repeat && rankWeight(same[0]) <= left && (!shape.count || chosen.length < shape.count - 1) ? pick(same) : pick(options);
+		if (rankWeight(n) > left) continue;
+		add(n);
+	}
+	if (total !== goal) return null;
+	if (shape.count && chosen.length !== shape.count) return null;
+	if (shape.ok && !shape.ok(chosen)) return null;
+	return chosen;
+}
+
+/**
+ * Several-part adversaries (a Kraken is a bloated head and three slimy tentacles) go into a suggestion whole:
+ * their parts leave the pool and come back as one boss that counts as all of them together. A group with a part
+ * missing from the creatures shown is left out.
+ */
+function wholeAdversaries(pool) {
+	const out = pool.filter((n) => !n.group);
+	for (const [name, level, parts] of PART_GROUPS) {
+		const have = pool.filter((n) => n.group === name);
+		if (!have.length) continue;
+		const byName = new Map(have.map((n) => [n.name.toLowerCase(), n]));
+		const members = parts.map((p) => byName.get(p.toLowerCase()));
+		if (members.some((m) => !m)) continue;
+		const weight = members.reduce((t, m) => t + rankWeight(m), 0);
+		const lead = members.find((m) => m.rank === 'champion') ?? members[0];
+		out.push({ uuid: `group:${name}`, name, level, rank: 'champion', replaced: weight, role: lead.role, villain: members.some((m) => m.villain), members });
+	}
+	return out;
+}
+
+/**
+ * A random encounter for a difficulty and shape from the creatures given: exactly the right soldier count,
+ * preferring foes near the party's level and a mix of roles.
  * @returns {{npc:object, qty:number}[]}
  */
-export function suggest(methodId, pool, party, difficulty = 'normal', { tries = 500, maxFoes = 8 } = {}) {
+export function suggest(pool, party, difficulty = 'normal', shapeId = 'balanced', { tries = 800, maxFoes = 8 } = {}) {
+	pool = wholeAdversaries(pool);
 	if (!pool.length) return [];
+	const shape = SHAPES[shapeId] ?? SHAPES.balanced;
 	const heroes = Math.max(1, (Number(party.heroes) || 1) + (Number(party.allies) || 0));
 	const goal = Math.max(1, { easy: heroes - 1, normal: heroes, hard: heroes + 1 }[difficulty] ?? heroes);
 	const PL = Number(party.level) || 1;
 	const pick = (list) => list[Math.floor(Math.random() * list.length)];
 	let best = null;
 	for (let t = 0; t < tries; t++) {
-		const chosen = [];
-		let total = 0;
-		// hard fights are often built around a boss: a champion, or an elite
-		if ((difficulty === 'hard' && Math.random() < 0.7) || Math.random() < 0.3) {
-			const leaders = pool.filter((n) => n.rank !== 'soldier' && rankWeight(n) <= goal);
-			if (leaders.length) {
-				const l = pick(leaders);
-				chosen.push(l);
-				total += rankWeight(l);
-			}
-		}
-		const soldiers = pool.filter((n) => n.rank === 'soldier');
-		const fill = soldiers.length ? soldiers : pool;
-		let guard = 0;
-		while (total < goal && chosen.length < maxFoes && guard++ < 40) {
-			// groups of the same soldier are common; so are mixed squads
-			const same = chosen.filter((c) => c.rank === 'soldier');
-			const n = same.length && Math.random() < 0.45 ? pick(same) : pick(fill);
-			const w = rankWeight(n);
-			if (total + w > goal) continue;
-			chosen.push(n);
-			total += w;
-		}
-		if (total !== goal) continue;
+		const chosen = tryShape(shape, pool, goal, maxFoes, pick);
+		if (!chosen) continue;
 		let score = 0;
 		for (const c of chosen) {
 			const gap = Math.abs((Number(c.level) || 0) - PL);
 			score += gap > 5 ? gap : 0;
 			if ((Number(c.level) || 0) < PL) score += 2;
 		}
-		if (methodId === 'bestiary') {
-			const roles = new Set(chosen.map((c) => c.role).filter(Boolean));
-			score -= roles.size * 1.5;
-			const sup = chosen.filter((c) => c.role === 'support' && c.rank === 'soldier').length;
-			if (sup > 1) score += 6 * (sup - 1);
-		}
-		score += new Set(chosen.map((c) => c.uuid)).size * 0.3 + Math.random();
+		const roles = new Set(chosen.map((c) => c.role).filter(Boolean));
+		if (shapeId !== 'pack' && shapeId !== 'horde') score -= roles.size * 1.5;
+		const sup = chosen.filter((c) => c.role === 'support' && c.rank === 'soldier').length;
+		if (sup > 1) score += 6 * (sup - 1);
+		score += uniq(chosen) * 0.3 + Math.random() * 2;
 		if (!best || score < best.score) best = { score, chosen };
 	}
 	const out = new Map();
-	for (const n of best?.chosen ?? []) {
+	for (const n of (best?.chosen ?? []).flatMap((c) => c.members ?? [c])) {
 		const e = out.get(n.uuid) ?? { npc: n, qty: 0 };
 		e.qty++;
 		out.set(n.uuid, e);

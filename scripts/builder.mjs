@@ -1,4 +1,4 @@
-import { DIFFICULTIES, METHODS, PICKABLE, RANK_LABEL, ROLES, evaluate, levelBand, rankText, rankWeight, suggest } from './rules.mjs';
+import { DIFFICULTIES, PICKABLE, RANK_LABEL, ROLES, RULES, SHAPES, evaluate, levelBand, rankText, rankWeight, suggest } from './rules.mjs';
 import { clearCatalog, loadCatalog, partyFromWorld } from './catalog.mjs';
 import { bindCreator, blankCreature, creatorHTML } from './creator-ui.mjs';
 import { placeEncounter } from './place.mjs';
@@ -36,6 +36,7 @@ export class EncounterBuilder extends ApplicationV2 {
 		this.party = { heroes: auto.heroes, allies: 0, level: auto.level, names: auto.names, manual: false };
 		this.method = setting('method') || 'core';
 		this.difficulty = 'normal';
+		this.shape = 'balanced';
 		/** @type {Map<string, {npc:object, qty:number}>} */
 		this.entries = new Map();
 		this.catalog = null;
@@ -109,8 +110,8 @@ export class EncounterBuilder extends ApplicationV2 {
 	}
 
 	#leftHTML() {
-		const m = METHODS[this.method];
-		const ev = evaluate(this.method, this.list, this.party);
+		const ev = evaluate(this.list, this.party);
+		const shape = SHAPES[this.shape] ?? SHAPES.balanced;
 		const saved = setting('saved') ?? {};
 		const rate = ev.rating ? DIFF[ev.rating] : null;
 		return `
@@ -124,12 +125,7 @@ export class EncounterBuilder extends ApplicationV2 {
 				</div>
 			</div>
 
-			<div class="method">
-				<div class="seg" role="radiogroup" aria-label="Encounter rules">
-					${Object.entries(METHODS).map(([id, x]) => `<button type="button" role="radio" aria-checked="${id === this.method}" class="${id === this.method ? 'on' : ''}" data-method="${id}">${esc(x.label)}</button>`).join('')}
-				</div>
-				<p class="blurb">${esc(m.blurb)}</p>
-			</div>
+			<details class="rules" ${this.rulesOpen ? 'open' : ''}><summary>${esc(RULES.label)}: how the count works</summary><p class="blurb">${esc(RULES.blurb)}</p></details>
 
 			<div class="meter">
 				<div class="row"><b class="rating" style="--c:${rate?.color ?? '#8aa0b8'}">${rate ? esc(rate.label) : 'Empty'}</b><span>${ev.count ? `${ev.count} ${ev.count === 1 ? 'foe' : 'foes'} · ${fmt(ev.total)} ${esc(ev.unit)}` : 'Add creatures from the list'}</span></div>
@@ -149,7 +145,7 @@ export class EncounterBuilder extends ApplicationV2 {
 							<img src="${esc(npc.img)}" alt="" loading="lazy">
 							<div class="d"><b>${esc(npc.name)}</b><small><span class="lvb ${levelBand(npc.level, this.party.level).id}" data-tooltip="${esc(levelBand(npc.level, this.party.level).label)}">Lv ${npc.level}</span> · <span class="rk ${npc.rank}">${esc(rankText(npc))}</span>${npc.role ? ` · <span class="role">${esc(npc.role)}</span>` : ''}${npc.villain ? ` · <span class="vil">${typeof npc.villain === 'string' ? esc(npc.villain) : ''} villain</span>` : ''}</small></div>
 							<div class="qty"><button type="button" data-qty="-1" aria-label="One fewer">−</button><b>${qty}</b><button type="button" data-qty="1" aria-label="One more">+</button></div>
-							<span class="w" data-tooltip="${this.method === 'bestiary' ? 'Enemy turns' : 'Soldiers'}">${rankWeight(npc) * qty}</span>
+							<span class="w" data-tooltip="Soldiers (enemy turns per round)">${rankWeight(npc) * qty}</span>
 						</div>`,
 								)
 								.join('')
@@ -161,7 +157,13 @@ export class EncounterBuilder extends ApplicationV2 {
 
 			<div class="suggest">
 				<div class="seg small">${PICKABLE.map((k) => `<button type="button" class="${k === this.difficulty ? 'on' : ''}" data-diff="${k}" style="--c:${DIFF[k].color}">${DIFF[k].label}</button>`).join('')}</div>
-				<button type="button" class="gold" data-act="suggest" data-tooltip="A random encounter for this difficulty from the creatures shown on the right"><i class="fa-solid fa-dice"></i> Suggest</button>
+				<button type="button" class="gold" data-act="suggest" data-tooltip="A random encounter of this shape and difficulty from the creatures shown on the right"><i class="fa-solid fa-dice"></i> Suggest</button>
+			</div>
+			<div class="shape">
+				<label><span class="cap">Shape</span><select data-act="shape" aria-label="Encounter shape">${Object.entries(SHAPES)
+					.map(([id, x]) => `<option value="${id}" ${id === (this.shape ?? 'balanced') ? 'selected' : ''}>${esc(x.label)}</option>`)
+					.join('')}</select></label>
+				<p class="blurb">${esc(shape.desc)}</p>
 			</div>
 
 			<div class="saved">
@@ -202,9 +204,9 @@ export class EncounterBuilder extends ApplicationV2 {
 			</div>
 			<div class="cat">${this.catalog
 				.map(
-					(c, i) => `<button type="button" class="cr" data-i="${i}" data-search="${esc(`${c.name} ${c.speciesLabel} ${c.traits} ${c.book} ${c.role}`.toLowerCase())}">
+					(c, i) => `<button type="button" class="cr" data-i="${i}" data-search="${esc(`${c.name} ${c.speciesLabel} ${c.traits} ${c.book} ${c.role} ${c.group ?? ''}`.toLowerCase())}">
 					<img src="${esc(c.img)}" alt="" loading="lazy">
-					<span class="d"><b>${esc(c.name)}</b><small>${esc(c.speciesLabel || 'Creature')}${c.role ? ` · <span class="role">${esc(c.role)}</span>` : ''} · ${esc(c.book)}</small></span>
+					<span class="d"><b>${esc(c.name)}${c.group ? ` <em class="part" data-tooltip="One profile of a several-part adversary: Suggest adds all of its parts together">part of ${esc(c.group)}</em>` : ''}</b><small>${esc(c.speciesLabel || 'Creature')}${c.role ? ` · <span class="role">${esc(c.role)}</span>` : ''} · ${esc(c.book)}</small></span>
 					<span class="lv">Lv ${c.level}</span>
 					<span class="rk ${c.rank}">${esc(rankText(c))}</span>
 					<i class="fa-solid fa-plus add"></i>
@@ -251,6 +253,14 @@ export class EncounterBuilder extends ApplicationV2 {
 
 	async _onRender() {
 		const root = this.element;
+		// Only the panels scroll. If the browser ever scrolls the frame itself (focus jumping to a hidden box),
+		// put it back at once, or the window shows an empty panel that nothing can scroll away.
+		if (!this.scrollGuard) {
+			this.scrollGuard = true;
+			const wc = root.querySelector('.window-content');
+			wc?.addEventListener('scroll', () => (wc.scrollTop = wc.scrollLeft = 0));
+			root.addEventListener('scroll', () => (root.scrollTop = root.scrollLeft = 0));
+		}
 		root.querySelectorAll('.fue-tabs [data-tab]').forEach((el) =>
 			el.addEventListener('click', () => {
 				if (this.tab === el.dataset.tab) return;
@@ -310,13 +320,7 @@ export class EncounterBuilder extends ApplicationV2 {
 				this.#applyFilters();
 			}),
 		);
-		left.querySelectorAll('[data-method]').forEach((el) =>
-			el.addEventListener('click', () => {
-				this.method = el.dataset.method;
-				game.settings.set(MODULE_ID, 'method', this.method);
-				this.#refreshLeft();
-			}),
-		);
+		left.querySelector('details.rules')?.addEventListener('toggle', (ev) => (this.rulesOpen = ev.target.open));
 		left.querySelectorAll('[data-diff]').forEach((el) =>
 			el.addEventListener('click', () => {
 				this.difficulty = el.dataset.diff;
@@ -353,11 +357,19 @@ export class EncounterBuilder extends ApplicationV2 {
 				this.#refreshLeft();
 				return this.#applyFilters();
 			}
+			case 'shape':
+				this.shape = el.value;
+				return this.#refreshLeft();
 			case 'suggest': {
 				if (!this.catalog) return;
 				const pool = this.catalog.filter((c) => this.#visible(c));
 				if (!pool.length) return ui.notifications.warn('No creatures match the filters on the right.');
-				this.entries = new Map(suggest(this.method, pool, this.party, this.difficulty).map((e) => [e.npc.uuid, e]));
+				const got = suggest(pool, this.party, this.difficulty, this.shape ?? 'balanced');
+				if (!got.length) {
+					ui.notifications.warn(`No ${(SHAPES[this.shape] ?? SHAPES.balanced).label.toLowerCase()} fits a ${this.difficulty} fight from the creatures shown. Widen the filters on the right, or try another shape.`);
+					return;
+				}
+				this.entries = new Map(got.map((e) => [e.npc.uuid, e]));
 				return this.#refreshLeft();
 			}
 			case 'clear':
@@ -384,7 +396,6 @@ export class EncounterBuilder extends ApplicationV2 {
 				const s = (setting('saved') ?? {})[el.value];
 				if (!s) return;
 				this.entries = new Map(s.foes.map((e) => [e.npc.uuid, { npc: e.npc, qty: e.qty }]));
-				this.method = s.method ?? this.method;
 				this.#refreshLeft();
 				const sel = this.element.querySelector('[data-act="load"]');
 				if (sel) sel.value = el.value;

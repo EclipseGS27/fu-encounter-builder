@@ -4,7 +4,7 @@
  * until it is placed on a scene.
  */
 
-import { BOOK_CREATURES } from './books.mjs';
+import { BOOK_CREATURES, PART_GROUPS } from './books.mjs';
 
 const norm = (n) => String(n ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
 /** name -> book entries with that name */
@@ -14,6 +14,10 @@ for (const [name, book, level, rank, replaced, species, role, villain, solo] of 
 	if (!BY_NAME.has(k)) BY_NAME.set(k, []);
 	BY_NAME.get(k).push({ name, book, level, rank, replaced, species, role, villain: !!villain, solo: !!solo });
 }
+
+/** "name|level" of a printed part -> the adversary it belongs to */
+const PART_OF = new Map();
+for (const [group, level, parts] of PART_GROUPS) for (const p of parts) PART_OF.set(`${norm(p)}|${level}`, group);
 
 /** The book entry for an NPC: same name, within 5 levels (a homebrew foe that shares a name stays unmatched) */
 export function bookEntry(name, level) {
@@ -45,6 +49,8 @@ function entry(data, { uuid, source, book }) {
 		role: known?.role ?? '',
 		fromBook: known?.book ?? '',
 		solo: !!known?.solo,
+		// one profile of a several-part adversary
+		group: known ? (PART_OF.get(`${norm(known.name)}|${known.level}`) ?? '') : '',
 		img: data.img || 'icons/svg/mystery-man.svg',
 		level,
 		rank: get(data, 'system.rank.value') || 'soldier',

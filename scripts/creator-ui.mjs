@@ -1,5 +1,6 @@
 import { AFF, ATTRS, ATTR_LABEL, DAMAGE_TYPES, SPECIES, STATUSES } from './creation-data.mjs';
-import { BOSS_SKILLS, CORE_ARRAYS, CORE_SKILLS, CORE_SPECIES, NEGATIVE_SKILLS, NPC_SPELLS, QA_LEVELS, QA_SPECIES, ROLES, actorData, attacksOf, blankCreature, computeCreature } from './creation.mjs';
+import { BOSS_SKILLS, CORE_ARRAYS, CORE_SKILLS, CORE_SPECIES, NEGATIVE_SKILLS, NPC_SPELLS, QA_LEVELS, QA_SPECIES, ROLES, actorData, attacksOf, blankCreature, computeCreature, roleSkillsOf, speciesOptionsOf, startingAttacks } from './creation.mjs';
+import { attackFrom, attackIdeas, randomAttack, randomTraits, skillIdeas, traitIdeas } from './ideas.mjs';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
@@ -35,7 +36,8 @@ export function creatorHTML(c) {
 			<label><span>Villain</span><select data-c="villain">${opt('', 'No', c.villain)}${['minor', 'major', 'supreme'].map((v) => opt(v, `${cap(v)} (${{ minor: 5, major: 10, supreme: 15 }[v]} UP)`, c.villain)).join('')}</select></label>
 		</div>
 		<p class="note">${esc(c.method === 'core' ? CORE_SPECIES[c.species]?.note : speciesNote(c))}</p>
-		<label class="traits"><span>Traits</span><span class="row">${[0, 1, 2, 3].map((i) => `<input type="text" data-trait="${i}" value="${esc(c.traits?.[i] ?? '')}" placeholder="trait ${i + 1}">`).join('')}</span></label>
+		<div class="traits"><span class="lbl">Traits <small>suggested from ${cap(c.species)} stat blocks in the books</small></span><span class="row">${[0, 1, 2, 3].map((i) => `<input type="text" data-trait="${i}" value="${esc(c.traits?.[i] ?? '')}" placeholder="trait ${i + 1}" list="fue-traits">`).join('')}<button type="button" class="ghost dice" data-cact="rolltraits" data-tooltip="Suggest four traits from the books"><i class="fa-solid fa-dice"></i></button></span>
+			<datalist id="fue-traits">${traitIdeas(c.species).map((t) => `<option value="${esc(t)}"></option>`).join('')}</datalist></div>
 
 		${c.method === 'core' ? coreHTML(c) : bestiaryHTML(c, role)}
 
@@ -49,6 +51,35 @@ export function creatorHTML(c) {
 		<textarea data-c="notes" rows="3" placeholder="Tactics, routine, special rules of your own…">${esc(c.notes)}</textarea>
 	</section>
 	<section class="cprev">${previewHTML(c, r)}</section>`;
+}
+
+/** "Add an attack…": the Species' attacks from the books, then homebrew ones, kept apart */
+function attackPicker(species) {
+	const { book, homebrew } = attackIdeas(species);
+	const row = (a, g, i) => `<option value="${g}:${i}">${esc(a[0])} · ${a[1] === 'ranged' ? 'ranged' : 'melee'} · ${esc(a[4])}${a[5] ? ' · +effect' : ''}</option>`;
+	return `<select data-cact-sel="pickatk" aria-label="Add an attack"><option value="">Add an attack…</option>${book.length ? `<optgroup label="From the books: ${cap(species)}">${book.map((a, i) => row(a, 'b', i)).join('')}</optgroup>` : ''}<optgroup label="──── Homebrew (not from the books) ────">${homebrew.map((a, i) => row(a, 'h', i)).join('')}</optgroup></select>`;
+}
+
+/** Special rules added on top: from the books, homebrew, or written by hand. One Skill each. */
+function extraSkillsHTML(c) {
+	const { book, homebrew } = skillIdeas(c.species);
+	const list = c.extraSkills ?? [];
+	return `
+		<h4>More special rules <small>one Skill each</small></h4>
+		<div class="extras">${list
+			.map(
+				(x, i) => `<div class="extra ${x.source === 'Homebrew' ? 'hb' : ''}" data-x="${i}">
+				<input type="text" data-xs="name" value="${esc(x.name)}" placeholder="Name">
+				<button type="button" class="x" data-cact="delx" data-i="${i}" aria-label="Remove">✕</button>
+				<textarea data-xs="text" rows="2" placeholder="What it does">${esc(x.text)}</textarea>
+				<small class="src">${x.source === 'Homebrew' ? 'Homebrew idea (not from the books)' : x.source ? `From the ${esc(x.source)}` : 'Your own'}</small>
+			</div>`,
+			)
+			.join('')}
+			<select data-cact-sel="pickx" aria-label="Add a special rule"><option value="">Add a special rule…</option><option value="own">✎ Write your own…</option>${
+				book.length ? `<optgroup label="From the books: ${cap(c.species)}">${book.map((r, i) => `<option value="b:${i}" title="${esc(r[1])}">${esc(r[0])}</option>`).join('')}</optgroup>` : ''
+			}<optgroup label="──── Homebrew (not from the books) ────">${homebrew.map((r, i) => `<option value="h:${i}" title="${esc(r[1])}">${esc(r[0])}</option>`).join('')}</optgroup></select>
+		</div>`;
 }
 
 function speciesNote(c) {
@@ -74,7 +105,7 @@ function coreHTML(c) {
 		</div>
 		${[20, 40, 60].some((x) => lv >= x) ? `<div class="cgrid"><span class="lbl">One die size up at</span>${[20, 40, 60].filter((x) => lv >= x).map((x) => `<label><span>Level ${x}</span><select data-up="${x}">${ATTRS.map((a) => opt(a, ATTR_LABEL[a], c.ups?.[x])).join('')}</select></label>`).join('')}</div>` : ''}
 
-		<h4>Basic attacks</h4>
+		<h4>Basic attacks <small>${c.autoAttacks ? 'suggested from the books' : ''}</small></h4>
 		<div class="attacks">${(c.attacks ?? [])
 			.map(
 				(a, i) => `<div class="atk" data-atk="${i}">
@@ -84,11 +115,18 @@ function coreHTML(c) {
 				<select data-a="a1">${ATTRS.map((x) => opt(x, ATTR_LABEL[x], a.attrs?.[1])).join('')}</select>
 				<select data-a="type">${DAMAGE_TYPES.map((t) => opt(t, cap(t), a.type)).join('')}</select>
 				<span class="hr">HR + ${a.hr ?? 5}</span>
+				<button type="button" class="x" data-cact="rollatk" data-i="${i}" data-tooltip="Another ${a.range === 'ranged' ? 'ranged' : 'melee'} attack from the books"><i class="fa-solid fa-dice"></i></button>
 				<button type="button" class="x" data-cact="delatk" data-i="${i}" aria-label="Remove attack">✕</button>
+				<input type="text" class="eff" data-a="effect" value="${esc(a.effect ?? '')}" placeholder="Effect, if any (a status, multi, draining…): counts as a Special Attack Skill">
+				${a.source ? `<small class="src">${esc(a.source === 'Homebrew' ? 'Homebrew idea' : `From the ${a.source}`)}</small>` : ''}
 			</div>`,
 			)
 			.join('')}
-			<button type="button" class="ghost add" data-cact="addatk">+ Attack</button>
+			<div class="addrow">
+				${attackPicker(c.species)}
+				<button type="button" class="ghost" data-cact="randatk" data-tooltip="A random attack from the books"><i class="fa-solid fa-dice"></i></button>
+				<button type="button" class="ghost add" data-cact="addatk">+ Blank</button>
+			</div>
 		</div>
 
 		<h4>Skills <small>${budgetText(c)}</small></h4>
@@ -97,7 +135,8 @@ function coreHTML(c) {
 			return `<div class="sk ${n ? 'on' : ''}"><div><b>${esc(s.name)}${s.limited ? ' <em>limited</em>' : s.max ? ` <em>max ${s.max}</em>` : ''}</b><p>${esc(s.text)}</p></div>
 				${s.alt ? `<label class="alt" data-tooltip="Use the other option">${n ? `<input type="checkbox" data-alt="${s.id}" ${(c.coreSkills ?? []).some((p) => p.id === s.id && p.alt) ? 'checked' : ''}> alt` : ''}</label>` : '<span></span>'}
 				<span class="cnt"><button type="button" data-skill="${s.id}" data-d="-1" ${n ? '' : 'disabled'}>−</button><b>${n}</b><button type="button" data-skill="${s.id}" data-d="1">+</button></span></div>`;
-		}).join('')}</div>`;
+		}).join('')}</div>
+		${extraSkillsHTML(c)}`;
 }
 
 function budgetText(c) {
@@ -119,8 +158,9 @@ function bestiaryHTML(c, role) {
 
 		<h4>Attacks</h4>
 		<div class="attacks">${attacks
-			.map((a, i) => `<div class="atk qa"><b>${esc(a.name)}</b><span>${a.range === 'ranged' ? 'Ranged' : 'Melee'} · (${ATTR_LABEL[a.attrs[0]]} + ${ATTR_LABEL[a.attrs[1]]}) · HR + ${a.hr}${a.multi ? ` · multi (${a.multi})` : ''}</span><select data-atype="${i}">${DAMAGE_TYPES.map((t) => opt(t, cap(t), c.attackTypes?.[i] ?? 'physical')).join('')}</select>${a.note ? `<p>${esc(a.note)}</p>` : ''}</div>`)
+			.map((a, i) => `<div class="atk qa"><span class="nm"><input type="text" data-aname="${i}" value="${esc(c.attackNames?.[i] ?? '')}" placeholder="${esc(a.kind ?? a.name)}" list="fue-atknames"><button type="button" class="x" data-cact="rollname" data-i="${i}" data-tooltip="A name from ${cap(c.species)} attacks in the books"><i class="fa-solid fa-dice"></i></button></span><span>${a.kind ? `${esc(a.kind)} · ` : ''}${a.range === 'ranged' ? 'Ranged' : 'Melee'} · (${ATTR_LABEL[a.attrs[0]]} + ${ATTR_LABEL[a.attrs[1]]}) · HR + ${a.hr}${a.multi ? ` · multi (${a.multi})` : ''}</span><select data-atype="${i}">${DAMAGE_TYPES.map((t) => opt(t, cap(t), c.attackTypes?.[i] ?? 'physical')).join('')}</select>${a.note ? `<p>${esc(a.note)}</p>` : ''}</div>`)
 			.join('')}</div>
+		<datalist id="fue-atknames">${attackIdeas(c.species).book.map((a) => `<option value="${esc(a[0])}"></option>`).join('')}</datalist>
 
 		${
 			c.rank !== 'champion'
@@ -130,11 +170,12 @@ function bestiaryHTML(c, role) {
 
 		<h4>Role Skills <small>${budgetText(c)}</small></h4>
 		<p class="note">${[20, 40, 60].filter((x) => lv >= x).length} from level${c.rank !== 'soldier' ? `, ${c.rank === 'elite' ? 1 : Math.max(2, Number(c.replaced) || 2)} from rank` : ''}; Species options and a Negative Skill can add more.</p>
-		<div class="skills">${role.skills
-			.map((s) => {
+		<div class="skills">${roleSkillsOf(c.role)
+			.map((s, i, all) => {
+				const divider = s.homebrew && !all[i - 1]?.homebrew ? '<div class="grp hb">Homebrew Role Skills (not from the Bestiary)</div>' : '';
 				const on = (c.roleSkills ?? []).includes(s.id);
 				const lock = (s.rank === 'elite+' && c.rank === 'soldier') || (s.rank === 'champion' && c.rank !== 'champion') || (s.rank === 'soldier/elite' && c.rank === 'champion');
-				return `<label class="sk ${on ? 'on' : ''} ${lock ? 'lock' : ''}"><div><b>${esc(s.name)}${s.rank ? ` <em>${s.rank === 'elite+' ? 'elite, champion' : s.rank}</em>` : ''}</b><p>${esc(s.text)}</p></div><span></span><input type="checkbox" data-rskill="${s.id}" ${on ? 'checked' : ''}></label>`;
+				return `${divider}<label class="sk ${on ? 'on' : ''} ${lock ? 'lock' : ''} ${s.homebrew ? 'hb' : ''}"><div><b>${esc(s.name)}${s.rank ? ` <em>${s.rank === 'elite+' ? 'elite, champion' : s.rank}</em>` : ''}</b><p>${esc(s.text)}</p></div><span></span><input type="checkbox" data-rskill="${s.id}" ${on ? 'checked' : ''}></label>`;
 			})
 			.join('')}</div>
 
@@ -156,11 +197,14 @@ function bestiaryHTML(c, role) {
 
 		<h4>Species options <small>${cap(c.species)}</small></h4>
 		${q.optVuln ? `<label class="fld"><span>Extra Vulnerability (unlocks one option)</span><select data-c="speciesVuln">${opt('', 'None', c.speciesVuln)}${q.optVuln.map((t) => opt(t, cap(t), c.speciesVuln)).join('')}</select></label>` : ''}
-		<div class="chips">${q.options.map((o, i) => `<label class="chip ${(c.speciesPicks ?? []).includes(i) ? 'on' : ''}"><input type="checkbox" data-spick="${i}" ${(c.speciesPicks ?? []).includes(i) ? 'checked' : ''}>${esc(o)}</label>`).join('')}</div>
+		<div class="chips">${speciesOptionsOf(c.species)
+			.map((o, i, all) => `${o.homebrew && !all[i - 1]?.homebrew ? '<div class="grp hb">Homebrew options (not from the Bestiary)</div>' : ''}<label class="chip ${o.homebrew ? 'hb' : ''} ${(c.speciesPicks ?? []).includes(i) ? 'on' : ''}" ${o.homebrew ? `data-tooltip="${esc(o.text)}"` : ''}><input type="checkbox" data-spick="${i}" ${(c.speciesPicks ?? []).includes(i) ? 'checked' : ''}>${esc(o.homebrew ? o.name : o.label)}</label>`)
+			.join('')}</div>
 
 		<h4>Negative Skill <small>optional: one more Role (or Boss) Skill</small></h4>
 		<select data-c="negative" class="wide">${opt('', 'None', c.negative)}${NEGATIVE_SKILLS.map((s) => opt(s.id, `${s.name}: ${s.text}`, c.negative)).join('')}</select>
-		${role.spells ? `<label class="fld check"><input type="checkbox" data-c="spellAlt" ${c.spellAlt ? 'checked' : ''}> One spell and +10 MP instead of two spells</label><p class="note">Also on this role’s list: ${esc(role.spells.classSpells)}. Add those from the compendium after creating it.</p>` : ''}`;
+		${role.spells ? `<label class="fld check"><input type="checkbox" data-c="spellAlt" ${c.spellAlt ? 'checked' : ''}> One spell and +10 MP instead of two spells</label><p class="note">Also on this role’s list: ${esc(role.spells.classSpells)}. Add those from the compendium after creating it.</p>` : ''}
+		${extraSkillsHTML(c)}`;
 }
 
 function spellsHTML(c, r) {
@@ -169,8 +213,7 @@ function spellsHTML(c, r) {
 	if (c.method === 'bestiary') {
 		const ids = new Set([...(role?.spells?.list ?? [])]);
 		for (const id of c.roleSkills ?? []) for (const s of role?.skills?.find((x) => x.id === id)?.spellList ?? []) ids.add(s);
-		const qs = QA_SPECIES[c.species];
-		for (const p of (c.speciesPicks ?? []).map((i) => qs.options[i])) {
+		for (const p of (c.speciesPicks ?? []).map((i) => speciesOptionsOf(c.species)[i]?.label)) {
 			if (!p?.startsWith('Spell:')) continue;
 			for (const s of NPC_SPELLS) if (p.includes(s.name)) ids.add(s.id);
 		}
@@ -241,7 +284,11 @@ export function bindCreator(root, c, { onChange, onCreated, onReset }) {
 			const k = el.dataset.c;
 			let v = el.type === 'checkbox' ? el.checked : el.value;
 			if (['level', 'replaced'].includes(k)) v = Math.max(k === 'level' ? 5 : 2, Math.min(k === 'level' ? 60 : 6, Number(v) || 5));
-			if (k === 'species') c.speciesPicks = [];
+			if (k === 'species') {
+				c.speciesPicks = [];
+				// still the suggested attacks: suggest ones for the new Species
+				if (c.autoAttacks) c.attacks = startingAttacks(v);
+			}
 			set(k, v);
 		}),
 	);
@@ -308,15 +355,81 @@ export function bindCreator(root, c, { onChange, onCreated, onReset }) {
 				const k = el.dataset.a;
 				if (k === 'a0' || k === 'a1') a.attrs[k === 'a0' ? 0 : 1] = el.value;
 				else a[k] = el.value;
+				if (k === 'name') a.source = '';
+				c.autoAttacks = false;
 				onChange();
 			}),
 		),
+	);
+	root.querySelectorAll('[data-aname]').forEach((el) =>
+		el.addEventListener('change', () => {
+			c.attackNames = [...(c.attackNames ?? [])];
+			c.attackNames[Number(el.dataset.aname)] = el.value;
+			onChange();
+		}),
+	);
+	root.querySelectorAll('.extra[data-x] [data-xs]').forEach((el) =>
+		el.addEventListener('change', () => {
+			const x = c.extraSkills?.[Number(el.closest('.extra').dataset.x)];
+			if (!x) return;
+			x[el.dataset.xs] = el.value;
+			onChange();
+		}),
+	);
+	root.querySelectorAll('select[data-cact-sel]').forEach((el) =>
+		el.addEventListener('change', () => {
+			const [g, i] = el.value.split(':');
+			if (!el.value) return;
+			if (el.dataset.cactSel === 'pickatk') {
+				const ideas = attackIdeas(c.species);
+				const a = (g === 'b' ? ideas.book : ideas.homebrew)[Number(i)];
+				if (a) c.attacks = [...(c.attacks ?? []), attackFrom(a)];
+				c.autoAttacks = false;
+			} else if (el.dataset.cactSel === 'pickx') {
+				const ideas = skillIdeas(c.species);
+				if (el.value === 'own') c.extraSkills = [...(c.extraSkills ?? []), { name: '', text: '', source: '' }];
+				else {
+					const r = (g === 'b' ? ideas.book : ideas.homebrew)[Number(i)];
+					if (r) c.extraSkills = [...(c.extraSkills ?? []), { name: r[0], text: r[1], source: r[2] }];
+				}
+			}
+			onChange();
+		}),
 	);
 	root.querySelectorAll('[data-cact]').forEach((el) =>
 		el.addEventListener('click', async () => {
 			switch (el.dataset.cact) {
 				case 'addatk':
-					c.attacks = [...(c.attacks ?? []), { name: 'Attack', range: 'melee', attrs: ['dex', 'mig'], type: 'physical', hr: 5 }];
+					c.attacks = [...(c.attacks ?? []), { name: 'Attack', range: 'melee', attrs: ['dex', 'mig'], type: 'physical', hr: 5, effect: '' }];
+					c.autoAttacks = false;
+					return onChange();
+				case 'randatk': {
+					const a = randomAttack(c.species, { not: (c.attacks ?? []).map((x) => x.name) });
+					if (a) c.attacks = [...(c.attacks ?? []), attackFrom(a)];
+					c.autoAttacks = false;
+					return onChange();
+				}
+				case 'rollatk': {
+					const i = Number(el.dataset.i);
+					const cur = c.attacks[i];
+					const a = randomAttack(c.species, { range: cur?.range, not: (c.attacks ?? []).map((x) => x.name) });
+					if (a) c.attacks[i] = attackFrom(a, cur?.hr ?? 5);
+					c.autoAttacks = false;
+					return onChange();
+				}
+				case 'rollname': {
+					const i = Number(el.dataset.i);
+					const kind = attacksOf({ ...c, attackNames: [] })[i];
+					const a = randomAttack(c.species, { range: kind?.range === 'ranged' ? 'ranged' : 'melee', not: c.attackNames ?? [] }) ?? randomAttack(c.species, { not: c.attackNames ?? [] });
+					c.attackNames = [...(c.attackNames ?? [])];
+					if (a) c.attackNames[i] = a[0];
+					return onChange();
+				}
+				case 'rolltraits':
+					c.traits = randomTraits(c.species, 4);
+					return onChange();
+				case 'delx':
+					c.extraSkills.splice(Number(el.dataset.i), 1);
 					return onChange();
 				case 'delatk':
 					c.attacks.splice(Number(el.dataset.i), 1);
