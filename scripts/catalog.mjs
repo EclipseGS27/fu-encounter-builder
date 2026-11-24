@@ -105,8 +105,8 @@ export function clearCatalog() {
 export function partyFromWorld() {
 	let actors = [];
 	try {
-		const id = game.settings.get('projectfu', 'activeParty');
-		const party = id ? game.actors.get(id) ?? fromUuidSync(id) : null;
+		const id = game.settings.get('projectfu', 'optionActiveParty');
+		const party = id instanceof Actor ? id : id ? game.actors.get(id) ?? fromUuidSync(id) : null;
 		const uuids = [...(party?.system?.characters ?? [])];
 		actors = uuids.map((u) => fromUuidSync(u)).filter(Boolean);
 	} catch {
