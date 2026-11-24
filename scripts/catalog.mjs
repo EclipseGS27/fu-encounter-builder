@@ -75,9 +75,12 @@ export async function loadCatalog({ refresh = false, onProgress } = {}) {
 	const out = [];
 	for (const a of game.actors ?? []) {
 		if (a.type !== 'npc') continue;
+		// a Pilot's vehicle token stand-in (Advanced Class Mechanics) is not a creature
+		if (a.getFlag?.('fu-class-mechanics', 'vehicleOf')) continue;
 		out.push(entry(a, { uuid: a.uuid, source: 'World', book: a.folder ? `World: ${rootFolder(game.folders, a.folder.id)}` : 'World' }));
 	}
-	const packs = [...(game.packs ?? [])].filter((p) => p.documentName === 'Actor' && (game.user.isGM || p.visible));
+	// Project FU's own "npcs" pack holds class-feature helpers (a decoy, a companion), not foes
+	const packs = [...(game.packs ?? [])].filter((p) => p.documentName === 'Actor' && p.collection !== 'projectfu.npcs' && (game.user.isGM || p.visible));
 	let i = 0;
 	for (const pack of packs) {
 		onProgress?.(++i, packs.length, pack.metadata.label);
